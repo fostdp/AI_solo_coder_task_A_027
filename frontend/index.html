@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>城市气候监测与热岛效应分析系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif; background: #0a0e17; color: #e0e6ed; overflow: hidden; height: 100vh; }
+
+        .header {
+            background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 100%);
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #1e3a5f;
+            height: 56px;
+        }
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            background: linear-gradient(90deg, #4fc3f7, #81d4fa, #b3e5fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header-stats {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 2px 12px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.05);
+        }
+        .stat-item .label { font-size: 11px; color: #7b8ea0; }
+        .stat-item .value { font-size: 16px; font-weight: 700; }
+        .stat-item .value.red { color: #ef5350; }
+        .stat-item .value.orange { color: #ff9800; }
+        .stat-item .value.green { color: #4caf50; }
+        .stat-item .value.blue { color: #42a5f5; }
+
+        .main-container {
+            display: flex;
+            height: calc(100vh - 56px);
+        }
+
+        .map-panel {
+            flex: 1;
+            position: relative;
+        }
+        #map { width: 100%; height: 100%; }
+
+        .right-panel {
+            width: 420px;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #1e3a5f;
+            background: #0d1b2a;
+            overflow-y: auto;
+        }
+
+        .panel-section {
+            padding: 16px;
+            border-bottom: 1px solid #1a2d42;
+        }
+        .panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4fc3f7;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .panel-title::before {
+            content: '';
+            display: inline-block;
+            width: 3px;
+            height: 14px;
+            background: #4fc3f7;
+            border-radius: 2px;
+        }
+
+        #trendChart { width: 100%; height: 180px; }
+
+        .alert-list { max-height: 200px; overflow-y: auto; }
+        .alert-item {
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .alert-item.warning { background: rgba(255,152,0,0.15); border-left: 3px solid #ff9800; }
+        .alert-item.critical { background: rgba(244,67,54,0.15); border-left: 3px solid #f44336; }
+        .alert-time { color: #7b8ea0; font-size: 11px; }
+
+        .station-popup {
+            background: #0d1b2a;
+            color: #e0e6ed;
+            border-radius: 10px;
+            padding: 0;
+            min-width: 300px;
+        }
+        .leaflet-popup-content-wrapper { background: #0d1b2a; color: #e0e6ed; border-radius: 10px; border: 1px solid #1e3a5f; }
+        .leaflet-popup-tip { background: #0d1b2a; }
+        .leaflet-popup-close-button { color: #7b8ea0 !important; }
+
+        .popup-header {
+            background: linear-gradient(135deg, #1a3a5c, #0d1b2a);
+            padding: 12px 16px;
+            border-radius: 10px 10px 0 0;
+            border-bottom: 1px solid #1e3a5f;
+        }
+        .popup-header h3 { font-size: 14px; margin-bottom: 4px; }
+        .popup-header .heat-index {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+        .heat-index.green { background: rgba(76,175,80,0.2); color: #4caf50; }
+        .heat-index.yellow { background: rgba(255,193,7,0.2); color: #ffc107; }
+        .heat-index.red { background: rgba(244,67,54,0.2); color: #f44336; }
+
+        .popup-body { padding: 12px 16px; }
+        .popup-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .metric-box {
+            background: rgba(255,255,255,0.05);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-box .metric-label { font-size: 11px; color: #7b8ea0; }
+        .metric-box .metric-value { font-size: 16px; font-weight: 600; }
+
+        #stationChart { width: 100%; height: 120px; }
+
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(13,27,42,0.92);
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #1e3a5f;
+            z-index: 1000;
+        }
+        .legend h4 { font-size: 12px; margin-bottom: 8px; color: #4fc3f7; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+
+        .refresh-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(13,27,42,0.92);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #7b8ea0;
+            z-index: 1000;
+        }
+
+        .leaflet-container { background: #0a0e17 !important; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏙️ 城市气候监测与热岛效应分析系统</h1>
+        <div class="header-stats">
+            <div class="stat-item">
+                <div class="label">城区均温</div>
+                <div class="value blue" id="urbanAvg">--</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">郊区均温</div>
+                <div class="value green" id="baselineAvg">--</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">热岛强度</div>
+                <div class="value orange" id="hiIntensity">--</div>
+            </div>
+            <div class="stat-item">
+                <div class="label">在线站点</div>
+                <div class="value blue" id="onlineStations">--</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="map-panel">
+            <div id="map"></div>
+            <div class="legend">
+                <h4>温差色标</h4>
+                <div class="legend-item"><div class="legend-dot" style="background:#4caf50"></div> &lt; 2℃ 正常</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#ffc107"></div> 2-5℃ 预警</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#f44336"></div> &gt; 5℃ 告警</div>
+            </div>
+            <div class="refresh-info" id="refreshInfo">数据刷新中...</div>
+        </div>
+
+        <div class="right-panel">
+            <div class="panel-section">
+                <div class="panel-title">热岛强度趋势（近7天）</div>
+                <canvas id="trendChart"></canvas>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">实时告警</div>
+                <div class="alert-list" id="alertList">
+                    <div style="text-align:center;color:#7b8ea0;padding:20px;font-size:13px;">暂无告警</div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">站点概况</div>
+                <div id="stationSummary" style="font-size:12px;line-height:1.8;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="heatmap.js"></script>
+    <script src="trendchart.js"></script>
+    <script>
+    const API_BASE = window.location.origin;
+    const MAP_CENTER = [30.545, 114.36];
+    const MAP_ZOOM = 12;
+
+    let map, heatmapLayer, trendChart;
+    let refreshTimer;
+
+    function initMap() {
+        map = L.map('map', {
+            center: MAP_CENTER,
+            zoom: MAP_ZOOM,
+            zoomControl: true
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+            maxZoom: 18
+        }).addTo(map);
+
+        heatmapLayer = new HeatmapLayer({
+            map: map,
+            apiBase: API_BASE,
+            onStationClick: showStationPopup
+        });
+    }
+
+    function initCharts() {
+        trendChart = new TrendChart({
+            canvasId: 'trendChart',
+            apiBase: API_BASE,
+            days: 7
+        });
+    }
+
+    function showStationPopup(station) {
+        var popupEl = '<div class="station-popup">' +
+            '<div class="popup-header">' +
+                '<h3>' + station.name + '</h3>' +
+                '<span class="heat-index green">加载中...</span>' +
+            '</div>' +
+            '<div class="popup-body">' +
+                '<div class="popup-metrics">' +
+                    '<div class="metric-box"><div class="metric-label">温度</div><div class="metric-value" style="color:#ef5350">--</div></div>' +
+                    '<div class="metric-box"><div class="metric-label">湿度</div><div class="metric-value" style="color:#42a5f5">--</div></div>' +
+                    '<div class="metric-box"><div class="metric-label">风速</div><div class="metric-value" style="color:#66bb6a">--</div></div>' +
+                    '<div class="metric-box"><div class="metric-label">辐射</div><div class="metric-value" style="color:#ffa726">--</div></div>' +
+                '</div>' +
+                '<canvas id="stationChart" width="268" height="120"></canvas>' +
+            '</div>' +
+        '</div>';
+
+        var marker = heatmapLayer.stationMarkers[station.station_id];
+        if (marker) {
+            marker.bindPopup(popupEl, { maxWidth: 320, minWidth: 300 }).openPopup();
+            loadStationDetail(station.station_id);
+        }
+    }
+
+    function loadStationDetail(stationId) {
+        Promise.all([
+            fetch(API_BASE + '/api/stations/' + stationId + '/latest').then(function(r) { return r.json(); }),
+            fetch(API_BASE + '/api/stations/' + stationId + '/heat-index').then(function(r) { return r.json(); })
+        ])
+        .then(function(results) {
+            var weather = results[0];
+            var hiData = results[1];
+            if (!weather) return;
+
+            var baselineTemp = heatmapLayer.getBaselineTemp();
+            var heatIndex = hiData ? hiData.heat_index : (weather.temperature - baselineTemp);
+            var hiClass = heatIndex < 2 ? 'green' : (heatIndex <= 5 ? 'yellow' : 'red');
+
+            var popup = document.querySelector('.station-popup');
+            if (!popup) return;
+
+            popup.querySelector('.heat-index').className = 'heat-index ' + hiClass;
+            popup.querySelector('.heat-index').textContent = '热岛指数: ' + heatIndex.toFixed(2) + '℃';
+
+            var values = popup.querySelectorAll('.metric-value');
+            if (values.length >= 4) {
+                values[0].textContent = weather.temperature.toFixed(1) + '℃';
+                values[1].textContent = weather.humidity.toFixed(1) + '%';
+                values[2].textContent = weather.wind_speed.toFixed(1) + 'm/s';
+                values[3].textContent = weather.solar_radiation.toFixed(1) + 'W/m²';
+            }
+
+            var stationChart = new StationChart({
+                canvasId: 'stationChart',
+                apiBase: API_BASE,
+                stationId: stationId
+            });
+            stationChart.load24h();
+        })
+        .catch(function(err) { console.error('Failed to load station detail:', err); });
+    }
+
+    function updateHeatIslandCurrent() {
+        fetch(API_BASE + '/api/heat-island/current')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data) return;
+                var urban = data.urban_avg_temp;
+                var baseline = data.baseline_avg_temp;
+                var intensity = data.intensity;
+
+                if (typeof urban !== 'number' || isNaN(urban) ||
+                    typeof baseline !== 'number' || isNaN(baseline) ||
+                    typeof intensity !== 'number' || isNaN(intensity)) {
+                    document.getElementById('urbanAvg').textContent = '--';
+                    document.getElementById('baselineAvg').textContent = '--';
+                    document.getElementById('hiIntensity').textContent = '--';
+                    return;
+                }
+
+                document.getElementById('urbanAvg').textContent = urban.toFixed(1) + '℃';
+                document.getElementById('baselineAvg').textContent = baseline.toFixed(1) + '℃';
+                document.getElementById('hiIntensity').textContent = intensity.toFixed(2) + '℃';
+
+                var el = document.getElementById('hiIntensity');
+                el.className = 'value ' + (intensity > 5 ? 'red' : (intensity > 2 ? 'orange' : 'green'));
+            })
+            .catch(function(err) { console.error('Failed to load heat island current:', err); });
+    }
+
+    function updateAlerts() {
+        fetch(API_BASE + '/api/alerts?hours=24')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var container = document.getElementById('alertList');
+                if (!data || data.length === 0) {
+                    container.innerHTML = '<div style="text-align:center;color:#7b8ea0;padding:20px;font-size:13px;">暂无告警</div>';
+                    return;
+                }
+
+                container.innerHTML = data.map(function(a) {
+                    var t = new Date(a.time);
+                    var timeStr = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' +
+                        String(t.getDate()).padStart(2,'0') + ' ' + String(t.getHours()).padStart(2,'0') + ':' +
+                        String(t.getMinutes()).padStart(2,'0');
+                    return '<div class="alert-item ' + a.level + '">' +
+                        '<div>' + a.message + '</div>' +
+                        '<div class="alert-time">' + timeStr + '</div>' +
+                    '</div>';
+                }).join('');
+            })
+            .catch(function(err) { console.error('Failed to load alerts:', err); });
+    }
+
+    function updateStationSummary() {
+        fetch(API_BASE + '/api/heatmap')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data) return;
+
+                var baselineTemp = heatmapLayer.getBaselineTemp();
+                var onlineCount = 0, warningCount = 0, dangerCount = 0;
+                data.forEach(function(p) {
+                    if (!p.is_baseline && p.temperature) {
+                        onlineCount++;
+                        var hi = p.temperature - baselineTemp;
+                        if (hi > 5) dangerCount++;
+                        else if (hi > 2) warningCount++;
+                    }
+                });
+
+                document.getElementById('onlineStations').textContent = onlineCount + '/50';
+
+                var summary = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">' +
+                    '<div style="background:rgba(76,175,80,0.1);padding:8px;border-radius:6px;text-align:center;">' +
+                        '<div style="font-size:20px;font-weight:700;color:#4caf50;">' + (onlineCount - warningCount - dangerCount) + '</div>' +
+                        '<div style="font-size:11px;color:#7b8ea0;">正常站点</div>' +
+                    '</div>' +
+                    '<div style="background:rgba(255,193,7,0.1);padding:8px;border-radius:6px;text-align:center;">' +
+                        '<div style="font-size:20px;font-weight:700;color:#ffc107;">' + warningCount + '</div>' +
+                        '<div style="font-size:11px;color:#7b8ea0;">预警站点</div>' +
+                    '</div>' +
+                    '<div style="background:rgba(244,67,54,0.1);padding:8px;border-radius:6px;text-align:center;">' +
+                        '<div style="font-size:20px;font-weight:700;color:#f44336;">' + dangerCount + '</div>' +
+                        '<div style="font-size:11px;color:#7b8ea0;">告警站点</div>' +
+                    '</div>' +
+                    '<div style="background:rgba(66,165,245,0.1);padding:8px;border-radius:6px;text-align:center;">' +
+                        '<div style="font-size:20px;font-weight:700;color:#42a5f5;">3</div>' +
+                        '<div style="font-size:11px;color:#7b8ea0;">基准站点</div>' +
+                    '</div>' +
+                '</div>';
+                document.getElementById('stationSummary').innerHTML = summary;
+            })
+            .catch(function(err) { console.error('Failed to update station summary:', err); });
+    }
+
+    function refreshAll() {
+        var now = new Date();
+        document.getElementById('refreshInfo').textContent =
+            '最后更新: ' + now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+
+        heatmapLayer.loadData();
+        trendChart.update();
+        updateHeatIslandCurrent();
+        updateAlerts();
+        updateStationSummary();
+    }
+
+    function init() {
+        initMap();
+        initCharts();
+        refreshAll();
+        refreshTimer = setInterval(refreshAll, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

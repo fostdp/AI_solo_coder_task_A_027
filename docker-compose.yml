@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.13.0-pg15
+    container_name: climate-timescaledb
+    environment:
+      POSTGRES_DB: climate_monitor
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TIMESCALEDB_TELEMETRY: 'off'
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: >
+      postgres
+      -c shared_preload_libraries=timescaledb
+      -c max_connections=200
+      -c shared_buffers=512MB
+      -c effective_cache_size=1536MB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d climate_monitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - climate-network
+
+  emqx:
+    image: emqx/emqx:5.3.2
+    container_name: climate-emqx
+    environment:
+      EMQX_NAME: emqx-climate
+      EMQX_HOST: 127.0.0.1
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "8883:8883"
+      - "18083:18083"
+    volumes:
+      - emqx_data:/opt/emqx/data
+    healthcheck:
+      test: ["CMD", "emqx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - climate-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        VERSION: "1.0.0"
+    container_name: climate-backend
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: climate_monitor
+      MQTT_BROKER: tcp://emqx:1883
+      MQTT_TOPIC: weather/stations/#
+      MQTT_CLIENT_ID: climate-backend
+      SERVER_PORT: 8080
+      PPROF_ENABLED: "true"
+      DINGTALK_WEBHOOK_URL: ""
+    ports:
+      - "8080:8080"
+      - "6060:6060"
+    volumes:
+      - ./frontend:/app/static:ro
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - climate-network
+
+  simulator:
+    build:
+      context: ./mqtt_simulator
+      dockerfile: Dockerfile
+    container_name: climate-simulator
+    environment:
+      MQTT_BROKER: emqx
+      MQTT_PORT: 1883
+      STATIONS: 50
+      INTERVAL: 300
+      TEMP_MIN: 15.0
+      TEMP_MAX: 40.0
+    command: >
+      python simulator.py
+      --broker emqx
+      --port 1883
+      --stations 50
+      --interval 300
+      --save-config /data/stations.json
+    volumes:
+      - simulator_data:/data
+    depends_on:
+      emqx:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - climate-network
+    profiles:
+      - simulator
+
+volumes:
+  timescaledb_data:
+    driver: local
+  emqx_data:
+    driver: local
+  simulator_data:
+    driver: local
+
+networks:
+  climate-network:
+    driver: bridge
