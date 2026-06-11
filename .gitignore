@@ -38,3 +38,41 @@ logs/
 # Data
 *.db
 *.sqlite
+
+# --- Auto-added by uploader ---
+# --- Node.js ---
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+# --- Java / Maven ---
+target
+*.class
+*.jar
+*.war
+.mvn/wrapper/maven-wrapper.jar
+# --- Python ---
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+env
+.tox
+.pytest_cache
+# --- IDE / Editor ---
+.idea
+.vscode
+# --- Project local ---
+.trae
+dist
+build
+.cache
+.output
+.nuxt
+.next
+coverage
+# --- Env ---
+.env.*.local
